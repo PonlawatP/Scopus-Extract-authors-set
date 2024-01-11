@@ -82,7 +82,7 @@ def downloadFileProcess(title="file", index=0, subindex=0, proc_1=(), proc_2=(),
                 while clicked is False:
                     sleep(0.5)
                     proc_2()
-                    print("click")
+                    print("dev: click")
 
                     try:
                         driver.find_element(By.XPATH, elems['export_close_modal'])
