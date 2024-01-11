@@ -5,18 +5,21 @@ from tqdm import tqdm
 import pandas as pd
 import requests
 import json
+import datetime
+
+import db_insert_master as db
 
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
 api_headers = {
     "Accept": "application/json",
-    "X-ELS-APIKey": "insert here"
+    "X-ELS-APIKey": "05bf281f96c4275d3c1f45a07b0cf5f1"
 }
 
 ChromeDriverManager().install()
@@ -29,6 +32,7 @@ def start_driver():
     chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument('--disable-gpu')
     chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-features=DownloadBubble') 
     # chrome_options.add_argument('--app=data:')
     return webdriver.Chrome(options=chrome_options, service=ChromeService())
 
@@ -48,18 +52,19 @@ elems = {
     'export_cited_2': '//*[@id="cited-by-panel"]/div/div[2]/div[2]/div[2]/ul/li[1]/div/span/button',
     'export_cited_3': '//*[@data-testid="export-to-csv"]',
     'export_cited_4': '//*[@data-testid="submit-export-button"]',
-    'export_download_1': '//input[@id="field_group_volumeIssuePages"]',
-    'export_download_2': '//input[@id="field_group_sourceDocumentType"]',
-    'export_download_3': '//input[@id="field_group_doi"]',
-    'export_download_4': '//input[@id="field_group_openAccess"]',
+    'export_download_1': '//input[@id="field_group_sourceDocumentType"]',
+    'export_download_2': '//input[@id="field_group_openAccess"]',
+    'export_download_3': '//input[@id="field_group_references"]',
+    'export_download_4': '//input[@data-testid="truncate-information-switch"]',
     'export_close_modal': '//*[@data-testid="modal-dismiss"]',
 }
+    # 'export_download_2': '//input[@id="field_group_doi"]',
 
 def waitForElement(elem):
     result = EC.presence_of_element_located(elem)
     WebDriverWait(driver, 10).until(result)
 # download fild and wait until complete
-def downloadFileProcess(title="file", index=0, subindex=0, proc_1=(), proc_2=()):
+def downloadFileProcess(title="file", index=0, subindex=0, proc_1=(), proc_2=(), proc_3=()):
     try:
         proc_1()
 
@@ -67,20 +72,25 @@ def downloadFileProcess(title="file", index=0, subindex=0, proc_1=(), proc_2=())
         clicked = False
         while clicked is False:
                 sleep(1)
-                try:
-                    for download_index in range(1, 5):
-                        waitForElement((By.XPATH, elems[f'export_download_{download_index}']))
-                        driver.find_element(By.XPATH, elems[f'export_download_{download_index}']).click()
-                    sleep(0.5)
-                    while clicked is False:
-                        proc_2()
+                # try:
+                
+                for download_index in range(1, 5):
+                    waitForElement((By.XPATH, elems[f'export_download_{download_index}']))
+                    driver.find_element(By.XPATH, elems[f'export_download_{download_index}']).click()
+                sleep(0.5)
 
-                        try:
-                            driver.find_element(By.XPATH, elems['export_close_modal'])
-                        except NoSuchElementException:
-                            clicked = True
-                except:
-                    break
+                while clicked is False:
+                    sleep(0.5)
+                    proc_2()
+                    print("click")
+
+                    try:
+                        driver.find_element(By.XPATH, elems['export_close_modal'])
+                        continue
+                    except NoSuchElementException:
+                        clicked = True
+                # except:
+                #     break
 
         found_file = False
         while clicked is True and found_file is False:
@@ -90,6 +100,7 @@ def downloadFileProcess(title="file", index=0, subindex=0, proc_1=(), proc_2=())
                 new_name = f'{_pathfile}/{title}_{index}{"-"+subindex if subindex != 0 else ""}.csv'
                 os.rename(old_name, new_name)
                 found_file = True
+                proc_3()
                 break
     except:
         pass
@@ -111,8 +122,6 @@ for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
     NUM_PUBS = 0
     CITES = 0
     CITES_SELF = 0
-    HINDEX = 0
-    HINDEX_SELF = 0
 
     for i in range(0, len(links)):
         if scopus_ids[i] == "nan":
@@ -137,9 +146,6 @@ for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
 
         driver.get(link)
 
-        # wait elements in scopus loaded
-        # waitForElement((By.XPATH, elems['authId']))
-
         # check id
         waitForElement((By.XPATH, elems['authId']))
         info = driver.find_element(By.XPATH, elems['authId'])
@@ -151,21 +157,12 @@ for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
         except:
             pass
 
-        # 02 hindex (ok)
-        # try:
-
-        #     hindex = driver.find_element(By.XPATH, elems['hindex'])
-        #     hindex = int(hindex.text.strip().split('\n')[0])
-
-        #     if hindex > HINDEX:
-        #         HINDEX = hindex
-
-        # except:
-        #     hindex = 0
-        #     pass
         driver.execute_script('window.scrollBy(0,300)')
 
-        # 03 load documents
+        docs_file = f'{_pathfile}/docs_{index}{"-"+i if i != 0 else ""}.csv'
+        cited_file = f'{_pathfile}/cited_{index}{"-"+i if i != 0 else ""}.csv'
+
+        # 02 load documents
         downloadFileProcess(title='docs', 
                             index=index, 
                             subindex=i,
@@ -179,14 +176,18 @@ for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
                             ),
                             proc_2=(
                                 lambda: (
-                                    waitForElement((By.XPATH, elems['export_document_3'])),
                                     driver.find_element(By.XPATH, elems['export_document_3']).click(),
                                 )
-                            )
+                            ),
+                            proc_3=(
+                                lambda: (
+                                    db.readCSVToDB(pd.read_csv(docs_file).fillna(''), scopus_id, "doc")
+                                )
+                            ),
         )
 
-        # 04 load citedby
-        downloadFileProcess(title='cted', 
+        # 03 load citedby
+        downloadFileProcess(title='cited', 
                             index=index, 
                             subindex=i,
                             proc_1=(
@@ -201,10 +202,14 @@ for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
                             ),
                             proc_2=(
                                 lambda: (
-                                    waitForElement((By.XPATH, elems['export_cited_4'])),
                                     driver.find_element(By.XPATH, elems['export_cited_4']).click()
                                 )
-                            )
+                            ),
+                            proc_3=(
+                                lambda: (
+                                    db.readCSVToDB(pd.read_csv(cited_file).fillna(''), scopus_id, "cite")
+                                )
+                            ),
         )
 
         # throw a warning if the scopus link get redirect somewhere else
@@ -214,16 +219,30 @@ for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
         #     NUM_PUBS += num_pubs
         #     CITES += cites
 
-        df.loc[index, 'Documents'] = NUM_PUBS
-        df.loc[index, 'Cited By'] = CITES
-        df.loc[index, 'Citations'] = CITES_SELF
-        df.loc[index, 'h-index'] = HINDEX
+        hindex = db.getHindexFromDb(scopus_id, 0, datetime.date.today().year)
+        db.updateStatsToDB(scopus_id, NUM_PUBS, CITES, CITES_SELF, hindex)
 
 driver.close()
 driver.quit()
 
-# output
-out_file = 'out.xlsx'
-writer = pd.ExcelWriter(out_file)
-df.to_excel(writer, sheet_name='out')
-writer.close()
+# for index, row in tqdm(df.iterrows(), total=len(df), desc="Authors Processing"):
+#     row = row.copy()
+
+#     scopus_ids = str(row['Scopus ID']).split('; ')
+
+#     for i in range(0, len(scopus_ids)):
+#         if scopus_ids[i] == "nan":
+#             continue
+
+#         docs_file = f'{_pathfile}/docs_{index}{"-"+i if i != 0 else ""}.csv'
+#         cited_file = f'{_pathfile}/cited_{index}{"-"+i if i != 0 else ""}.csv'
+
+#         df.loc[index, 'Documents'] = NUM_PUBS
+#         df.loc[index, 'Cited By'] = CITES
+#         df.loc[index, 'Citations'] = CITES_SELF
+
+# # output
+# out_file = 'out.xlsx'
+# writer = pd.ExcelWriter(out_file)
+# df.to_excel(writer, sheet_name='out')
+# writer.close()
