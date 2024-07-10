@@ -26,3 +26,4 @@ urllib3==1.26.6
 webdriver-manager==4.0.1
 wsproto==1.2.0
 XlsxWriter==3.1.9
+zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability
